@@ -1,73 +1,52 @@
-'use strict'
+"use strict";
 
-const Redis = require('ioredis');
+const Redis = require("ioredis");
 
-console.log('IORedis module loaded');
+console.log("IORedis module loaded");
 
-// Use 'host.docker.internal' to connect to a Docker container from the host machine
-const redisHost = process.env.REDIS_HOST || 'host.docker.internal';
-const redisPort = process.env.REDIS_PORT || 6379;
+const redisConfig = {
+  host: "localhost", // Try localhost since we bound to 0.0.0.0
+  port: 6379,
+  connectTimeout: 10000,
+  enableReadyCheck: true,
+  autoResubscribe: false,
+  retryStrategy(times) {
+    const delay = Math.min(times * 100, 3000);
+    console.log(`Retry attempt ${times}, delaying ${delay}ms`);
+    return delay;
+  },
+  maxRetriesPerRequest: 5,
+};
 
-console.log(`Attempting to connect to Redis at ${redisHost}:${redisPort}`);
+console.log(
+  `Attempting to connect to Redis at ${redisConfig.host}:${redisConfig.port}`
+);
 
-const redisClient = new Redis({
-    host: redisHost,
-    port: redisPort,
-    retryStrategy(times) {
-        console.log(`Retry attempt ${times}`);
-        if (times > 10) {
-            console.error('Redis connection refused. Check if Redis is running and the host/port are correct.');
-            return null; // stop retrying
-        }
-        return Math.min(times * 100, 3000);
-    }
+const redisClient = new Redis(redisConfig);
+
+redisClient.on("connect", () => {
+  console.log("Socket connected");
 });
 
-redisClient.on('connect', () => {
-    console.log('Redis client received connect event');
+redisClient.on("ready", () => {
+  console.log("Redis client is ready");
 });
 
-redisClient.on('ready', () => {
-    console.log('Redis client is ready');
+redisClient.on("error", (err) => {
+  console.error("Redis Client Error:", {
+    message: err.message,
+    code: err.code,
+    syscall: err.syscall,
+    errno: err.errno,
+    stack: err.stack,
+  });
 });
 
-redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', err);
-});
-
-redisClient.on('close', () => {
-    console.log('Redis connection closed');
-});
-
-// Test the connection
-redisClient.ping().then((result) => {
-    console.log('Redis PING successful, result:', result);
-}).catch((err) => {
-    console.error('Error pinging Redis:', err);
-});
-
-const acquireLock = async (productId, quantity, cardId) => {
-    const key = `lock_v2023_${productId}`;
-    const retryTimes = 10;
-    const expireTime = 3000;
-    for (let i = 0; i < retryTimes; i++) {
-        const result = await redisClient.setnx(key, expireTime);
-        console.log(`result:::`, result);
-        if (result === 1) {
-            return key;
-        } else {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-    }
-    return null;
-}
-
-const releaseLock = async keyLock => {
-    return await redisClient.del(keyLock);
-}
-
-module.exports = {
-    redisClient,
-    acquireLock,
-    releaseLock
-}
+// Test connection with timeout
+setTimeout(() => {
+  console.log("Attempting ping...");
+  redisClient
+    .ping()
+    .then((result) => console.log("Ping result:", result))
+    .catch((err) => console.error("Ping failed:", err));
+}, 1000);
